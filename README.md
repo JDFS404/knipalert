@@ -53,9 +53,10 @@ docker compose logs -f          # watch it boot; type `help` in Discord to verif
 Once the container works, **stop the macOS launchd jobs** so they don't double up
 (double alerts / double bookings):
 ```bash
-launchctl unload ~/Library/LaunchAgents/com.justindegroot.snipalertbot.plist
-launchctl unload ~/Library/LaunchAgents/com.justindegroot.alanslotwatch.plist
-launchctl unload ~/Library/LaunchAgents/com.justindegroot.snipalertreminder.plist
+launchctl unload ~/Library/LaunchAgents/com.knipalert.gateway.plist
+launchctl unload ~/Library/LaunchAgents/com.knipalert.reminder.plist
+launchctl unload ~/Library/LaunchAgents/com.knipalert.dayreminder.plist
+launchctl unload ~/Library/LaunchAgents/com.knipalert.watch.plist
 ```
 
 ## Deploy from GitHub (commit → live)
