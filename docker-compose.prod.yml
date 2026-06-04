@@ -1,0 +1,29 @@
+# Production compose for the Proxmox host: pulls the prebuilt image from GHCR
+# (built by GitHub Actions on every push to main) instead of building locally.
+#
+# Image published by GitHub Actions for JDFS404/snipalert.
+#
+#   docker compose -f docker-compose.prod.yml pull
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# Watchtower auto-pulls new images every 2 min, so a push to main goes live by itself.
+
+services:
+  snipalert:
+    image: ghcr.io/jdfs404/snipalert:latest
+    container_name: snipalert
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/data
+      - ./secrets:/secrets:ro
+
+  watchtower:
+    image: containrrr/watchtower
+    container_name: snipalert-watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # for a PRIVATE GHCR image, mount creds created by `docker login ghcr.io`:
+      - ~/.docker/config.json:/config.json:ro
+    command: --interval 120 --cleanup snipalert

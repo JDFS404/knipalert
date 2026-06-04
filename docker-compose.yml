@@ -1,0 +1,9 @@
+services:
+  snipalert:
+    build: .
+    container_name: snipalert
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/data
+      - ./secrets:/secrets:ro

@@ -1,0 +1,58 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#262b36"/>
+      <stop offset="100%" stop-color="#0d0e13"/>
+    </linearGradient>
+    <linearGradient id="steel" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ffffff"/><stop offset="100%" stop-color="#cfd6df"/>
+    </linearGradient>
+    <pattern id="pole" width="40" height="40" patternUnits="userSpaceOnUse" patternTransform="rotate(60)">
+      <rect width="40" height="40" fill="#ffffff"/>
+      <rect x="0" width="13" height="40" fill="#e23b3b"/>
+      <rect x="20" width="13" height="40" fill="#2b6cd4"/>
+    </pattern>
+    <clipPath id="barClip"><rect x="146" y="430" width="220" height="22" rx="11"/></clipPath>
+  </defs>
+
+  <!-- card -->
+  <rect width="512" height="512" rx="116" fill="url(#bg)"/>
+  <rect x="26" y="26" width="460" height="460" rx="96" fill="none" stroke="#e23b3b" stroke-opacity="0.45" stroke-width="4"/>
+
+  <!-- moustache: one half mirrored for perfect symmetry -->
+  <defs>
+    <path id="mhalf" d="M256,166
+             C296,150 330,146 356,151
+             C384,157 390,184 373,199
+             C366,186 349,184 333,189
+             C310,197 284,201 261,193
+             C258,191 256,185 256,181 Z"/>
+  </defs>
+  <g fill="#ffffff" transform="translate(256,180) scale(0.88) translate(-256,-180)">
+    <use href="#mhalf"/>
+    <use href="#mhalf" transform="matrix(-1,0,0,1,512,0)"/>
+  </g>
+
+  <!-- scissors -->
+  <g stroke="url(#steel)" stroke-width="17" stroke-linecap="round" fill="none">
+    <line x1="256" y1="300" x2="232" y2="214"/>
+    <line x1="256" y1="300" x2="280" y2="214"/>
+    <line x1="256" y1="300" x2="242" y2="346"/>
+    <line x1="256" y1="300" x2="270" y2="346"/>
+  </g>
+  <circle cx="240" cy="356" r="15" fill="none" stroke="url(#steel)" stroke-width="10"/>
+  <circle cx="272" cy="356" r="15" fill="none" stroke="url(#steel)" stroke-width="10"/>
+  <circle cx="256" cy="300" r="9" fill="#eef2f7" stroke="#aab4c2" stroke-width="3"/>
+
+  <!-- green alert ping -->
+  <g>
+    <circle cx="392" cy="126" r="44" fill="#141822"/>
+    <circle cx="392" cy="126" r="28" fill="#33d17a"/>
+    <circle cx="392" cy="126" r="28" fill="none" stroke="#9bf3c2" stroke-opacity="0.6" stroke-width="9"/>
+    <circle cx="392" cy="126" r="11" fill="#0e2a1b"/>
+  </g>
+
+  <!-- barber-pole stripe accent -->
+  <g clip-path="url(#barClip)"><rect x="130" y="420" width="252" height="42" fill="url(#pole)"/></g>
+  <rect x="146" y="430" width="220" height="22" rx="11" fill="none" stroke="#ffffff" stroke-opacity="0.18" stroke-width="2"/>
+</svg>
