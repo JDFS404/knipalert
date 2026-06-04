@@ -61,7 +61,7 @@ launchctl unload ~/Library/LaunchAgents/com.justindegroot.snipalertreminder.plis
 ## Deploy from GitHub (commit → live)
 
 The repo includes a GitHub Action (`.github/workflows/docker-publish.yml`) that
-builds the image and pushes it to **GHCR** (`ghcr.io/jdfs404/snipalert`) on every push to
+builds the image and pushes it to **GHCR** (`ghcr.io/jdfs404/knipalert`) on every push to
 `main`. The Proxmox host runs the prebuilt image and Watchtower auto-pulls updates —
 so committing to `main` makes it live within ~2 minutes.
 
@@ -72,13 +72,13 @@ so committing to `main` makes it live within ~2 minutes.
 ### One-time
 1. **Create a repo** (public recommended — no secrets in it) and push:
    ```bash
-   cd ~/snipalert
+   cd ~/knipalert
    git init && git add . && git commit -m "SnipAlert"
    git branch -M main
-   git remote add origin git@github.com:JDFS404/snipalert.git
+   git remote add origin git@github.com:JDFS404/knipalert.git
    git push -u origin main
    ```
-   The Action runs and publishes `ghcr.io/jdfs404/snipalert:latest`.
+   The Action runs and publishes `ghcr.io/jdfs404/knipalert:latest`.
 
 2. **On the Proxmox host**, put only the runtime bits in a folder:
    `.env` (real values), `secrets/gcal-sa.json`, `data/state.json`.
@@ -103,4 +103,4 @@ so committing to `main` makes it live within ~2 minutes.
 ## Notes
 - Secrets live in `.env` + `secrets/` (git-ignored). Nothing is committed.
 - State persists in the `./data` volume across restarts/rebuilds.
-- Change reminder days in `snipalert/run.py` (`REMINDER_DAYS`), hour via `REMINDER_HOUR`.
+- Change reminder days in `knipalert/run.py` (`REMINDER_DAYS`), hour via `REMINDER_HOUR`.

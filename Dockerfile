@@ -8,8 +8,8 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY snipalert/ ./snipalert/
+COPY knipalert/ ./knipalert/
 
 VOLUME ["/data"]
 
-CMD ["python", "-m", "snipalert.run"]
+CMD ["python", "-m", "knipalert.run"]

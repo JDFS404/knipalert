@@ -57,8 +57,9 @@ BRAND_NAME = "Barbershop Alan"
 BRAND_COLOR = 0xE23B3B  # barbershop red
 BRAND_PHOTO = "https://barbershopalan.nl/wp-content/uploads/2024/08/11212.jpg"
 BRAND_LOGO = "https://barbershopalan.nl/wp-content/uploads/2024/08/Logo-w.png"
-# Icon shown on every embed; override with your GitHub-hosted cartoon if you like.
-BRAND_ICON = env("BRAND_ICON_URL", BRAND_PHOTO)
+# Icon shown on every embed (GitHub-hosted cartoon); override via BRAND_ICON_URL.
+BRAND_ICON = env("BRAND_ICON_URL",
+                 "https://cdn.jsdelivr.net/gh/JDFS404/knipalert@main/assets/snipalert-bot-icon.png")
 
 # Optional Claude Haiku fallback (only used when the rule parser is stumped).
 ANTHROPIC_API_KEY = env("ANTHROPIC_API_KEY", "")

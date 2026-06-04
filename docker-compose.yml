@@ -1,7 +1,7 @@
 services:
-  snipalert:
+  knipalert:
     build: .
-    container_name: snipalert
+    container_name: knipalert
     restart: unless-stopped
     env_file: .env
     volumes:
