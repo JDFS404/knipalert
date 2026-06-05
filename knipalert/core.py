@@ -7,6 +7,7 @@ All configuration comes from environment variables (see .env.example).
 import os
 import re
 import json
+import base64
 import datetime
 import urllib.request
 
@@ -48,6 +49,9 @@ STATE_PATH = env("STATE_PATH", "/data/state.json")
 GCAL_ENABLED = env("GCAL_ENABLED", "true").lower() == "true"
 GCAL_CALENDAR_ID = env("GCAL_CALENDAR_ID", "primary")
 GOOGLE_CREDENTIALS = env("GOOGLE_APPLICATION_CREDENTIALS", "/secrets/gcal-sa.json")
+# Service-account key as base64 of the JSON (preferred for Komodo/env-only deploys).
+# Falls back to the file at GOOGLE_APPLICATION_CREDENTIALS if unset.
+GOOGLE_CREDENTIALS_B64 = env("GOOGLE_CREDENTIALS_B64", "")
 
 LOCATION = env("BARBER_LOCATION", "Bilderdijkstraat 92H, 1053KX Amsterdam")
 BOOK_URL = "https://widget.salonhub.nl/a/barbershopalan/amsterdam/link.html"
@@ -364,8 +368,12 @@ def llm_command(text):
 def _gcal_service():
     from googleapiclient.discovery import build
     from google.oauth2 import service_account
-    creds = service_account.Credentials.from_service_account_file(
-        GOOGLE_CREDENTIALS, scopes=["https://www.googleapis.com/auth/calendar"])
+    scopes = ["https://www.googleapis.com/auth/calendar"]
+    if GOOGLE_CREDENTIALS_B64:
+        info = json.loads(base64.b64decode(GOOGLE_CREDENTIALS_B64))
+        creds = service_account.Credentials.from_service_account_info(info, scopes=scopes)
+    else:
+        creds = service_account.Credentials.from_service_account_file(GOOGLE_CREDENTIALS, scopes=scopes)
     return build("calendar", "v3", credentials=creds, cache_discovery=False)
 
 
