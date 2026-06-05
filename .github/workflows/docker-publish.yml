@@ -30,10 +30,24 @@ jobs:
             type=raw,value=latest
             type=sha,format=short
 
-      - name: Build and push
+      # 1) Build locally (no push yet) so we can smoke-test before publishing.
+      - name: Build (load, no push)
         uses: docker/build-push-action@v6
         with:
           context: .
-          push: true
+          load: true
+          push: false
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+      # 2) Smoke test: boot the image with dummy env and import everything
+      #    (catches syntax/import errors + missing deps before it can go live).
+      - name: Smoke test
+        run: |
+          IMG=$(echo "${{ steps.meta.outputs.tags }}" | head -n1)
+          docker run --rm -e DISCORD_BOT_TOKEN=dummy -e DISCORD_CHANNEL_ID=1 "$IMG" \
+            python -c "import knipalert.run, googleapiclient.discovery, google.oauth2.service_account, discord; print('smoke ok')"
+
+      # 3) Only now publish (smoke test passed -> a broken commit never becomes :latest).
+      - name: Push
+        run: echo "${{ steps.meta.outputs.tags }}" | xargs -L1 docker push
