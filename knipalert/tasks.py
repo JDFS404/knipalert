@@ -28,6 +28,7 @@ HELP = (
     "`check zaterdag over 2 weken`, `check volgende week vrijdag`.\n"
     "• `<datum>` — alleen een datum sturen mag ook.\n"
     "• `wanneer wel?` / `eerstvolgende` — toont de eerstvolgende dag met vrije plek.\n"
+    "• `tot wanneer?` / `laatste` — tot hoe ver de agenda openstaat + de laatste vrije dag.\n"
     "• `boek <tijd>` — boekt die tijd op de laatst getoonde dag, zet 'm in je "
     "agenda én annuleert je vorige afspraak. Bv. `boek 11:00` of `boek zaterdag 14:00`.\n"
     "• `geknipt` / `geweest [datum]` — meld dat je geknipt bent (ook buiten het "
@@ -151,6 +152,27 @@ def _handle(text, state, allow_llm=True):
             extra = "\nDaarna ook vrij op: " + ", ".join(nl_date(x)[:-5] for x in dates[1:4])
         discord_post(f":scissors: Eerstvolgende plek: **{nl_date(d0)}**: {pretty}\n"
                      f"Boeken? Stuur bv. `boek {slots[0][:5]}`.{extra}")
+        return
+
+    # "tot wanneer / laatste plek / hoe ver staat de agenda open"
+    if any(k in low for k in ("laatste", "laatstvolgende", "tot wanneer", "hoe ver",
+                              "verste", "laatst mogelijk", "agenda open", "hoe lang vooruit",
+                              "tot hoe ver", "laatste tijd", "tot welke")):
+        dates = sh_dates(limit=120)
+        if not dates:
+            discord_post("Ik zie momenteel geen vrije plekken bij Alan.")
+            return
+        first, last = dates[0], dates[-1]
+        slots = sh_times(last)
+        state["context_date"] = last
+        save_state(state)
+        msg = (f":calendar: De agenda van Alan staat open van **{nl_date(first)}** "
+               f"t/m **{nl_date(last)}** ({len(dates)} dagen met plek).")
+        if slots:
+            msg += ("\nLaatste vrije dag **" + nl_date(last) + "**: "
+                    + ", ".join(s[:5] for s in slots)
+                    + f"\nBoeken? Stuur bv. `boek {slots[0][:5]}`.")
+        discord_post(msg)
         return
 
     date = parse_date(low)

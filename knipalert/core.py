@@ -331,12 +331,13 @@ def llm_command(text):
     system = (
         "Je zet een Nederlands bericht voor een kappers-boekingsbot om naar JSON.\n"
         f"Vandaag is {tdy.isoformat()} ({DOW_NL[tdy.weekday()]}), tijdzone Europe/Amsterdam.\n"
-        "Velden: action ('check'|'next'|'boek'|'geweest'|'status'|'annuleer'|'help'|'none'), "
+        "Velden: action ('check'|'next'|'last'|'boek'|'geweest'|'status'|'annuleer'|'help'|'none'), "
         "date (YYYY-MM-DD of null), time (HH:MM of null). Reken relatieve datums uit "
         "(bv. 'volgende week vrijdag', 'over 2 weken'). Gebruik 'next' bij vage "
         "beschikbaarheidsvragen zonder concrete dag (bv. 'wanneer kan ik', 'wat is vrij', "
-        "'eerste plek', 'wanneer wel'). Wees ruimhartig: kies liever 'check'/'next' dan 'none'. "
-        "Antwoord met UITSLUITEND JSON."
+        "'eerste plek', 'wanneer wel'). Gebruik 'last' bij vragen over hoe ver vooruit / de "
+        "laatste mogelijkheid (bv. 'tot wanneer', 'laatste plek', 'hoe ver staat de agenda open'). "
+        "Wees ruimhartig: kies liever 'check'/'next'/'last' dan 'none'. Antwoord met UITSLUITEND JSON."
     )
     body = {"model": ANTHROPIC_MODEL, "max_tokens": 200, "system": system,
             "messages": [{"role": "user", "content": text}]}
@@ -353,6 +354,8 @@ def llm_command(text):
     date, tm = d.get("date"), d.get("time")
     if a == "next":
         return "eerstvolgende"
+    if a == "last":
+        return "laatste"
     if a == "check" and date:
         return f"check {date}"
     if a == "boek" and tm:
