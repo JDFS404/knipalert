@@ -66,6 +66,12 @@ def _handle(text, state, allow_llm=True):
                      f"{' en in je agenda gezet' if gcal_id else ''}.")
         return
 
+    # Any URL (e.g. a SalonHub annuleer/edit link) -> never NLU-guess on it.
+    if "http" in low or "salonhub.nl" in low:
+        discord_post(":information_source: Die SalonHub-link is versleuteld, die kan ik niet "
+                     "uitlezen. Wil je annuleren? Stuur dan gewoon `annuleer`.")
+        return
+
     if low in ("help", "hulp", "?", "commando's", "commandos"):
         discord_post(HELP)
         return
