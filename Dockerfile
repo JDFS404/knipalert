@@ -12,4 +12,8 @@ COPY knipalert/ ./knipalert/
 
 VOLUME ["/data"]
 
+# Unhealthy if the gateway heartbeat file goes stale (>150s) -> Komodo can alert.
+HEALTHCHECK --interval=60s --timeout=10s --start-period=45s --retries=3 \
+  CMD test "$(( $(date +%s) - $(stat -c %Y /tmp/alive 2>/dev/null || echo 0) ))" -lt 150 || exit 1
+
 CMD ["python", "-m", "knipalert.run"]

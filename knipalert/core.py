@@ -186,7 +186,7 @@ def discord_messages(after=None, limit=50):
     return http("GET", url, headers=_d_headers())
 
 
-def discord_post(content, image=None):
+def discord_post(content, image=None, components=None):
     embed = {
         "color": BRAND_COLOR,
         "author": {"name": BRAND_NAME, "icon_url": BRAND_ICON},
@@ -194,8 +194,11 @@ def discord_post(content, image=None):
     }
     if image:
         embed["image"] = {"url": image}
+    body = {"embeds": [embed]}
+    if components:
+        body["components"] = components
     http("POST", f"{DISCORD_API}/channels/{DISCORD_CHANNEL}/messages",
-         headers=_d_headers(), body={"embeds": [embed]})
+         headers=_d_headers(), body=body)
 
 
 # --- state ------------------------------------------------------------------

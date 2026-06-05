@@ -10,11 +10,14 @@ stalls the websocket heartbeat. Keep alive with `restart: unless-stopped`.
 """
 import os
 import re
+import time
 import asyncio
 import collections
 import traceback
 
 import discord
+
+HEARTBEAT_FILE = "/tmp/alive"
 
 from . import core
 from . import tasks
@@ -42,6 +45,29 @@ async def on_ready():
           f"(channel {CHANNEL_ID}, gcal={'on' if core.GCAL_ENABLED else 'off'})", flush=True)
     client.loop.create_task(watch_loop())
     client.loop.create_task(reminder_loop())
+    client.loop.create_task(heartbeat_loop())
+
+
+@client.event
+async def on_interaction(interaction):
+    # one-click "boek HH:MM" buttons
+    try:
+        if interaction.type != discord.InteractionType.component:
+            return
+        if ALLOWED and str(interaction.user.id) not in ALLOWED:
+            await interaction.response.send_message("Niet gemachtigd.", ephemeral=True)
+            return
+        cid = (interaction.data or {}).get("custom_id", "")
+        if not cid.startswith("book|"):
+            return
+        _, bdate, hhmm = cid.split("|", 2)
+        await interaction.response.defer()
+        async with _lock:
+            state = core.load_state()
+            ok, msg = await asyncio.to_thread(tasks.book_slot, state, bdate, hhmm)
+        await interaction.followup.send(msg)
+    except Exception:
+        traceback.print_exc()
 
 
 @client.event
@@ -65,6 +91,18 @@ async def on_message(msg):
         except Exception:
             traceback.print_exc()
         core.save_state(state)
+
+
+async def heartbeat_loop():
+    # touch a file while connected -> Docker HEALTHCHECK marks unhealthy if it goes stale
+    while True:
+        try:
+            if client.is_ready():
+                with open(HEARTBEAT_FILE, "w") as f:
+                    f.write(str(int(time.time())))
+        except Exception:
+            pass
+        await asyncio.sleep(30)
 
 
 async def watch_loop():

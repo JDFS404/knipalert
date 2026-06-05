@@ -33,10 +33,71 @@ HELP = (
     "agenda én annuleert je vorige afspraak. Bv. `boek 11:00` of `boek zaterdag 14:00`.\n"
     "• `geknipt` / `geweest [datum]` — meld dat je geknipt bent (ook buiten het "
     "systeem om); ik reset dan de 2-weken-teller. Bv. `geknipt` of `geweest gisteren`.\n"
-    "• `status` — je huidige afspraak tonen.\n"
-    "• `annuleer` — je huidige afspraak annuleren.\n"
+    "• `verzet <tijd>` — je eerstvolgende afspraak verzetten (oude wordt geannuleerd). "
+    "Bv. `verzet zaterdag 14:00`.\n"
+    "• `status` — je geplande afspraken · `annuleer` — afspraak annuleren.\n"
+    "• `historie` — je laatste knipbeurten + gemiddelde cadans.\n"
     "• `help` — dit overzicht."
 )
+
+
+# --- booking helpers (shared by text commands + buttons) --------------------
+def book_slot(state, bdate, hhmm):
+    """Book bdate@hhmm. Returns (ok, message). Appends to state on success."""
+    target = f"{hhmm}:00"
+    if target not in sh_times(bdate):
+        return False, (f":warning: **{hhmm}** is niet (meer) vrij op {nl_date(bdate)}. "
+                       f"Stuur `check {bdate}` voor de actuele tijden.")
+    res = sh_create(bdate, target)
+    if res.get("status") != "confirmed":
+        return False, f":x: Boeken lukte niet ({res}). Probeer 't via de site."
+    try:
+        gcal_id = gcal_add(bdate, hhmm)
+        agenda = " In je agenda gezet." if gcal_id else ""
+    except Exception as e:
+        gcal_id, agenda = None, f" (Agenda-event lukte niet: {e})"
+    get_appts(state).append({"appointment": res["appointment"], "token": res["token"],
+                             "date": bdate, "time": target, "gcal_event_id": gcal_id})
+    state.pop("watch_earlier", None)
+    save_state(state)
+    return True, (f":white_check_mark: Geboekt: **{nl_date(bdate)} om {hhmm}** "
+                  f"(knippen bij Alan, €35).{agenda}")
+
+
+def cancel_appt(state, a):
+    """Cancel a tracked appointment dict (needs token). Returns True on success."""
+    if not a.get("token"):
+        return False
+    if sh_cancel(a["appointment"], a["token"]):
+        gcal_delete(a.get("gcal_event_id"))
+        try:
+            get_appts(state).remove(a)
+        except ValueError:
+            pass
+        save_state(state)
+        return True
+    return False
+
+
+def slot_buttons(date, slots, limit=10):
+    """Discord action-rows of 'boek HH:MM' buttons for a day's slots."""
+    rows, row = [], []
+    for s in slots[:limit]:
+        hhmm = s[:5]
+        row.append({"type": 2, "style": 1, "label": f"boek {hhmm}",
+                    "custom_id": f"book|{date}|{hhmm}"})
+        if len(row) == 5:
+            rows.append({"type": 1, "components": row}); row = []
+    if row:
+        rows.append({"type": 1, "components": row})
+    return rows
+
+
+def add_history(state, date_iso):
+    h = state.setdefault("history", [])
+    if date_iso not in h:
+        h.append(date_iso)
+        h.sort()
 
 
 # --- bot --------------------------------------------------------------------
@@ -86,6 +147,21 @@ def _handle(text, state, allow_llm=True):
             discord_post("Je hebt op dit moment geen afspraak bij mij bekend.")
         return
 
+    if low in ("historie", "geschiedenis", "history", "hoe vaak", "cadans"):
+        lc = state.get("last_cut")
+        alld = sorted(set(state.get("history", []) + ([lc] if lc else [])))
+        if not alld:
+            discord_post("Nog geen knipbeurten geregistreerd.")
+            return
+        lines = "\n".join(f"• {nl_date(d)}" for d in alld[-6:])
+        gap = ""
+        if len(alld) >= 2:
+            ds = [datetime.date.fromisoformat(x) for x in alld]
+            gaps = [(ds[i] - ds[i - 1]).days for i in range(1, len(ds))]
+            gap = f"\nGemiddeld elke **{round(sum(gaps) / len(gaps))} dagen**."
+        discord_post(f":scissors: Je laatste knipbeurten:\n{lines}{gap}")
+        return
+
     if any(low.startswith(k) for k in ("annuleer", "cancel", "afzeggen")):
         appts = get_appts(state)
         up = upcoming(appts, today().isoformat())
@@ -125,6 +201,7 @@ def _handle(text, state, allow_llm=True):
         tdy = today().isoformat()
         d = parse_date(low) or tdy
         state["last_cut"] = d
+        add_history(state, d)
         appts = get_appts(state)
         state["appointments"] = [a for a in appts if a["date"] >= tdy]  # drop past only
         state.pop("watch_earlier", None)
@@ -151,7 +228,8 @@ def _handle(text, state, allow_llm=True):
         if len(dates) > 1:
             extra = "\nDaarna ook vrij op: " + ", ".join(nl_date(x)[:-5] for x in dates[1:4])
         discord_post(f":scissors: Eerstvolgende plek: **{nl_date(d0)}**: {pretty}\n"
-                     f"Boeken? Stuur bv. `boek {slots[0][:5]}`.{extra}")
+                     f"Tik een knop of stuur bv. `boek {slots[0][:5]}`.{extra}",
+                     components=slot_buttons(d0, slots))
         return
 
     # "tot wanneer / laatste plek / hoe ver staat de agenda open"
@@ -171,7 +249,27 @@ def _handle(text, state, allow_llm=True):
         if slots:
             msg += ("\nLaatste vrije dag **" + nl_date(last) + "**: "
                     + ", ".join(s[:5] for s in slots)
-                    + f"\nBoeken? Stuur bv. `boek {slots[0][:5]}`.")
+                    + f"\nTik een knop of stuur bv. `boek {slots[0][:5]}`.")
+        discord_post(msg, components=slot_buttons(last, slots))
+        return
+
+    # "verzet [datum] <tijd>" — reschedule the soonest cancellable appointment
+    if "verzet" in low or "verplaats" in low:
+        up = [a for a in upcoming(get_appts(state), today().isoformat()) if a.get("token")]
+        if not up:
+            discord_post("Ik heb geen (door mij geboekte) afspraak om te verzetten.")
+            return
+        old = up[0]
+        ntime = parse_time(low)
+        if not ntime:
+            discord_post(f"Naar welke tijd wil je **{nl_date(old['date'])} om {old['time'][:5]}** "
+                         f"verzetten? Bv. `verzet zaterdag 14:00`.")
+            return
+        ndate = parse_date(low) or old["date"]
+        ok, msg = book_slot(state, ndate, ntime)
+        if ok:
+            cancel_appt(state, old)
+            msg += f" Verzet vanaf je oude afspraak ({nl_date(old['date'])} om {old['time'][:5]}), die is geannuleerd."
         discord_post(msg)
         return
 
@@ -186,7 +284,8 @@ def _handle(text, state, allow_llm=True):
         if slots:
             pretty = ", ".join(s[:5] for s in slots)
             discord_post(f":scissors: Vrije tijden op **{nl_date(date)}**: {pretty}\n"
-                         f"Boeken? Stuur bv. `boek {slots[0][:5]}`.")
+                         f"Tik een knop of stuur bv. `boek {slots[0][:5]}`.",
+                         components=slot_buttons(date, slots))
         else:
             discord_post(f":no_entry_sign: Geen vrije tijden op **{nl_date(date)}**.")
         return
@@ -196,27 +295,8 @@ def _handle(text, state, allow_llm=True):
         if not bdate:
             discord_post("Welke dag bedoel je? Stuur eerst bv. `check 20 juni`, dan `boek 11:00`.")
             return
-        target = f"{time_hhmm}:00"
-        if target not in sh_times(bdate):
-            discord_post(f":warning: **{time_hhmm}** is niet (meer) vrij op {nl_date(bdate)}. "
-                         f"Stuur `check {bdate}` voor de actuele tijden.")
-            return
-        res = sh_create(bdate, target)
-        if res.get("status") != "confirmed":
-            discord_post(f":x: Boeken lukte niet ({res}). Probeer 't via de site.")
-            return
-        try:
-            gcal_id = gcal_add(bdate, time_hhmm)
-            agenda = " In je agenda gezet." if gcal_id else ""
-        except Exception as e:
-            gcal_id, agenda = None, f" (Agenda-event lukte niet: {e})"
-        appts = get_appts(state)
-        appts.append({"appointment": res["appointment"], "token": res["token"],
-                      "date": bdate, "time": target, "gcal_event_id": gcal_id})
-        state.pop("watch_earlier", None)
-        save_state(state)
-        discord_post(f":white_check_mark: Geboekt: **{nl_date(bdate)} om {time_hhmm}** "
-                     f"(knippen bij Alan, €35).{agenda} Je andere afspraken blijven staan.")
+        ok, msg = book_slot(state, bdate, time_hhmm)
+        discord_post(msg + (" Je andere afspraken blijven staan." if ok else ""))
         return
 
     # rule parser stumped -> optional Claude Haiku fallback (only if a key is set)
@@ -309,6 +389,8 @@ def reminder_run():
     future = [a for a in appts if a["date"] >= tdy_iso]
     if past:
         state["last_cut"] = max(a["date"] for a in past)
+        for a in past:
+            add_history(state, a["date"])
         state["appointments"] = future
         state.pop("watch_earlier", None)
         save_state(state)
