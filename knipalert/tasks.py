@@ -11,7 +11,7 @@ import sys
 
 from . import core
 from .core import (
-    sh_times, sh_dates, sh_get, sh_create, sh_cancel, gcal_add, gcal_delete,
+    sh_times, sh_dates, sh_get, sh_create, sh_cancel, gcal_add, gcal_delete, gcal_busy,
     discord_post, discord_messages, load_state, save_state,
     parse_date, parse_time, nl_date, next_dow, today, llm_command,
     get_appts, upcoming,
@@ -35,6 +35,7 @@ HELP = (
     "systeem om); ik reset dan de 2-weken-teller. Bv. `geknipt` of `geweest gisteren`.\n"
     "• `verzet <tijd>` — je eerstvolgende afspraak verzetten (oude wordt geannuleerd). "
     "Bv. `verzet zaterdag 14:00`.\n"
+    "• `hou <datum> in de gaten` — wachtlijst: ik ping zodra er op die dag een plek vrijkomt.\n"
     "• `status` — je geplande afspraken · `annuleer` — afspraak annuleren.\n"
     "• `historie` — je laatste knipbeurten + gemiddelde cadans.\n"
     "• `help` — dit overzicht."
@@ -42,12 +43,17 @@ HELP = (
 
 
 # --- booking helpers (shared by text commands + buttons) --------------------
-def book_slot(state, bdate, hhmm):
+def book_slot(state, bdate, hhmm, force=False):
     """Book bdate@hhmm. Returns (ok, message). Appends to state on success."""
     target = f"{hhmm}:00"
     if target not in sh_times(bdate):
         return False, (f":warning: **{hhmm}** is niet (meer) vrij op {nl_date(bdate)}. "
                        f"Stuur `check {bdate}` voor de actuele tijden.")
+    if not force:
+        clash = gcal_busy(bdate, hhmm)
+        if clash:
+            return False, (f":warning: Je hebt om **{hhmm}** op {nl_date(bdate)} al {clash} "
+                           f"in je agenda. Toch boeken? Stuur `boek {hhmm} toch`.")
     res = sh_create(bdate, target)
     if res.get("status") != "confirmed":
         return False, f":x: Boeken lukte niet ({res}). Probeer 't via de site."
@@ -253,6 +259,22 @@ def _handle(text, state, allow_llm=True):
         discord_post(msg, components=slot_buttons(last, slots))
         return
 
+    # waitlist: "hou <datum> in de gaten" / "wachtlijst [datum]"
+    if "in de gaten" in low or low.startswith(("wachtlijst", "waitlist")):
+        wl = state.setdefault("waitlist", {})
+        d = parse_date(low)
+        if d:
+            wl[d] = sh_times(d)  # baseline now -> only alert on NEW openings
+            save_state(state)
+            discord_post(f":eyes: Ik hou **{nl_date(d)}** in de gaten en ping je zodra er een "
+                         f"plek vrijkomt. (`wachtlijst` toont je lijst.)")
+        elif wl:
+            days = ", ".join(nl_date(x) for x in sorted(wl))
+            discord_post(f":eyes: Op je wachtlijst: {days}.")
+        else:
+            discord_post("Je wachtlijst is leeg. Stuur bv. `hou 14 juni in de gaten`.")
+        return
+
     # "verzet [datum] <tijd>" — reschedule the soonest cancellable appointment
     if "verzet" in low or "verplaats" in low:
         up = [a for a in upcoming(get_appts(state), today().isoformat()) if a.get("token")]
@@ -266,7 +288,7 @@ def _handle(text, state, allow_llm=True):
                          f"verzetten? Bv. `verzet zaterdag 14:00`.")
             return
         ndate = parse_date(low) or old["date"]
-        ok, msg = book_slot(state, ndate, ntime)
+        ok, msg = book_slot(state, ndate, ntime, force=True)
         if ok:
             cancel_appt(state, old)
             msg += f" Verzet vanaf je oude afspraak ({nl_date(old['date'])} om {old['time'][:5]}), die is geannuleerd."
@@ -295,7 +317,8 @@ def _handle(text, state, allow_llm=True):
         if not bdate:
             discord_post("Welke dag bedoel je? Stuur eerst bv. `check 20 juni`, dan `boek 11:00`.")
             return
-        ok, msg = book_slot(state, bdate, time_hhmm)
+        force = "toch" in low or "forceer" in low
+        ok, msg = book_slot(state, bdate, time_hhmm, force=force)
         discord_post(msg + (" Je andere afspraken blijven staan." if ok else ""))
         return
 
@@ -353,9 +376,39 @@ def watcher_run():
         discord_post(
             f":scissors: **Eerder plekje vrij op {nl_date(ap['date'])}!**\n"
             f"Nieuw vóór je {booked}: **{pretty}**\n"
-            f"Eerder knippen? Stuur bv. `boek {new[0][:5]}`.")
+            f"Eerder knippen? Stuur bv. `boek {new[0][:5]}`.",
+            components=slot_buttons(ap["date"], new))
     state["watch_earlier"] = earlier
     save_state(state)
+
+
+def waitlist_run():
+    """Watch arbitrary days the user put on the waitlist; ping on new openings."""
+    if not core.within_active_hours():
+        return
+    state = load_state()
+    wl = state.get("waitlist", {})
+    if not wl:
+        return
+    tdy = today().isoformat()
+    changed = False
+    for d in list(wl.keys()):
+        if d < tdy:
+            del wl[d]
+            changed = True
+            continue
+        cur = sh_times(d)
+        new = [s for s in cur if s not in set(wl[d])]
+        if new:
+            pretty = ", ".join(s[:5] for s in new)
+            discord_post(f":eyes: **Wachtlijst — plek vrij op {nl_date(d)}!**\n"
+                         f"Nieuw: **{pretty}**\nBoeken? Tik een knop of `boek {new[0][:5]}`.",
+                         components=slot_buttons(d, new))
+        if cur != wl[d]:
+            wl[d] = cur
+            changed = True
+    if changed:
+        save_state(state)
 
 
 # --- biweekly reminder ------------------------------------------------------

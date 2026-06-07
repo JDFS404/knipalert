@@ -7,6 +7,8 @@ All configuration comes from environment variables (see .env.example).
 import os
 import re
 import json
+import glob
+import shutil
 import base64
 import datetime
 import urllib.request
@@ -229,6 +231,21 @@ def save_state(s):
     os.replace(tmp, STATE_PATH)
 
 
+def backup_state(keep=14):
+    """Daily snapshot of state.json into /data/backups (keeps last `keep`)."""
+    try:
+        if not os.path.exists(STATE_PATH):
+            return
+        bdir = os.path.join(os.path.dirname(STATE_PATH), "backups")
+        os.makedirs(bdir, exist_ok=True)
+        dest = os.path.join(bdir, f"state-{today().isoformat()}.json")
+        shutil.copy2(STATE_PATH, dest)
+        for old in sorted(glob.glob(os.path.join(bdir, "state-*.json")))[:-keep]:
+            os.remove(old)
+    except Exception:
+        pass
+
+
 def get_appts(state):
     """Appointment list, migrating the legacy single-appointment field."""
     appts = state.get("appointments")
@@ -407,3 +424,23 @@ def gcal_delete(event_id):
         _gcal_service().events().delete(calendarId=GCAL_CALENDAR_ID, eventId=event_id).execute()
     except Exception:
         pass
+
+
+def gcal_busy(date, hhmm):
+    """Return a busy event's summary if the slot clashes with your calendar, else None."""
+    if not (GCAL_ENABLED and ZoneInfo):
+        return None
+    try:
+        hh, mm = (int(x) for x in hhmm.split(":"))
+        tz = ZoneInfo(TIMEZONE)
+        start = datetime.datetime.fromisoformat(date).replace(hour=hh, minute=mm, tzinfo=tz)
+        end = start + datetime.timedelta(minutes=DURATION_MIN)
+        svc = _gcal_service()
+        fb = svc.freebusy().query(body={
+            "timeMin": start.isoformat(), "timeMax": end.isoformat(),
+            "timeZone": TIMEZONE, "items": [{"id": GCAL_CALENDAR_ID}],
+        }).execute()
+        busy = fb.get("calendars", {}).get(GCAL_CALENDAR_ID, {}).get("busy", [])
+        return "een bestaande afspraak" if busy else None
+    except Exception:
+        return None
