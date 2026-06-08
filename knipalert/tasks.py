@@ -106,6 +106,13 @@ def add_history(state, date_iso):
         h.sort()
 
 
+def window_days(target_iso, radius=5):
+    """Available days within ±radius days of a target date (soonest first)."""
+    t = datetime.date.fromisoformat(target_iso)
+    return [d for d in sh_dates(limit=120)
+            if abs((datetime.date.fromisoformat(d) - t).days) <= radius]
+
+
 # --- bot --------------------------------------------------------------------
 def _handle(text, state, allow_llm=True):
     low = text.lower().strip()
@@ -299,6 +306,22 @@ def _handle(text, state, allow_llm=True):
     time_hhmm = parse_time(low)
     wants_book = "boek" in low or (time_hhmm and not date)
 
+    # fuzzy "rond / ongeveer / die week" -> show a WINDOW of open days, not one exact day
+    if not wants_book and any(w in low for w in
+                              ("rondom", "ongeveer", "ergens", "in de buurt", "die week", "rond")):
+        target = date or state.get("context_date") or today().isoformat()
+        days = window_days(target, radius=5)
+        if not days:
+            discord_post(f"Rond **{nl_date(target)}** zie ik geen vrije plekken. "
+                         f"Stuur `tot wanneer?` voor de hele agenda.")
+            return
+        state["context_date"] = days[0]
+        save_state(state)
+        lines = [f"**{nl_date(d)[:-5]}**: " + ", ".join(s[:5] for s in sh_times(d)[:6]) for d in days[:5]]
+        discord_post(f":scissors: Vrije dagen rond **{nl_date(target)}**:\n" + "\n".join(lines)
+                     + f"\nBoeken? Stuur bv. `boek {days[0]} 11:00` (of `check {days[0]}`).")
+        return
+
     if date and not wants_book:
         state["context_date"] = date
         save_state(state)
@@ -309,7 +332,9 @@ def _handle(text, state, allow_llm=True):
                          f"Tik een knop of stuur bv. `boek {slots[0][:5]}`.",
                          components=slot_buttons(date, slots))
         else:
-            discord_post(f":no_entry_sign: Geen vrije tijden op **{nl_date(date)}**.")
+            near = window_days(date, radius=6)
+            sug = (" Dichtstbij wel vrij: " + ", ".join(nl_date(x)[:-5] for x in near[:4])) if near else ""
+            discord_post(f":no_entry_sign: Geen vrije tijden op **{nl_date(date)}** (vaak dicht ma/di)." + sug)
         return
 
     if wants_book and time_hhmm:
