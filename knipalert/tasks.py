@@ -473,24 +473,27 @@ def morning_reminder():
 
 
 def deadline_reminder():
-    """Heads-up while you can still cancel: fires when an appointment is 24-48h out
-    (i.e. >24h before it locks). Once per appointment."""
+    """Heads-up while there's still a good window to cancel. Run at the pattern hours
+    (08/12/16/20); fires once per appointment as soon as the 24u cancel-deadline is
+    within the next 24h (so it lands the evening/day before the deadline, not just
+    before it). Example: 09:30 cut -> pinged ~midday the day before, ~21h to act."""
     state = load_state()
     appts = get_appts(state)
     warned = state.setdefault("deadline_warned", [])
     ids = {a["appointment"] for a in appts}
     warned[:] = [w for w in warned if w in ids]  # prune past ones
+    now = core.now_local().replace(tzinfo=None)
     changed = False
     for a in appts:
-        h = hours_until(a)
-        if 24 < h <= 48 and a["appointment"] not in warned:
-            appt = datetime.datetime.fromisoformat(f"{a['date']}T{a['time']}")
-            deadline = appt - datetime.timedelta(hours=24)
+        appt = datetime.datetime.fromisoformat(f"{a['date']}T{a['time']}")
+        deadline = appt - datetime.timedelta(hours=24)
+        deadline_h = (deadline - now).total_seconds() / 3600
+        if 2 < deadline_h <= 24 and a["appointment"] not in warned:
             discord_post(
                 f":alarm_clock: **Laatste kans om te annuleren/verzetten.**\n"
                 f"Je knipbeurt is **{nl_date(a['date'])} om {a['time'][:5]}**. "
                 f"Tot **{nl_date(deadline.date())[:-5]} {deadline.strftime('%H:%M')}** "
-                f"(24u van tevoren) kan ik 'm nog annuleren of verzetten — daarna alleen via Alan.")
+                f"(~{round(deadline_h)}u) kan ik 'm nog annuleren of verzetten — daarna alleen via Alan.")
             warned.append(a["appointment"])
             changed = True
     if changed:
