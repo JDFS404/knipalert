@@ -25,7 +25,8 @@ from . import tasks
 WATCH_EVERY = 15 * 60
 REMINDER_HOUR = int(os.environ.get("REMINDER_HOUR", "9"))
 MORNING_HOUR = int(os.environ.get("REMINDER_MORNING_HOUR", "8"))
-DEADLINE_HOURS = {int(h) for h in os.environ.get("DEADLINE_CHECK_HOURS", "8,12,16,20").split(",") if h.strip()}
+DEADLINE_HOURS = sorted({int(h) for h in os.environ.get("DEADLINE_CHECK_HOURS", "8,12,16,20").split(",") if h.strip()})
+DEADLINE_BUFFER = int(os.environ.get("DEADLINE_BUFFER_HOURS", "4"))
 REMINDER_DAYS = {2, 4}  # Wed, Fri (Mon=0)
 CHANNEL_ID = int(core.DISCORD_CHANNEL)
 ALLOWED = {x.strip() for x in os.environ.get("DISCORD_ALLOWED_USERS", "").split(",") if x.strip()}
@@ -234,7 +235,7 @@ async def reminder_loop():
         # cancel-deadline heads-up: checked at the pattern hours, once per slot
         if now.hour in DEADLINE_HOURS and deadline_slot != slot:
             try:
-                await asyncio.to_thread(tasks.deadline_reminder)
+                await asyncio.to_thread(tasks.deadline_reminder, DEADLINE_HOURS, DEADLINE_BUFFER)
                 deadline_slot = slot
             except Exception:
                 traceback.print_exc()

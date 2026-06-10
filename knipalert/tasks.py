@@ -472,11 +472,21 @@ def morning_reminder():
         save_state(state)
 
 
-def deadline_reminder():
-    """Heads-up while there's still a good window to cancel. Run at the pattern hours
-    (08/12/16/20); fires once per appointment as soon as the 24u cancel-deadline is
-    within the next 24h (so it lands the evening/day before the deadline, not just
-    before it). Example: 09:30 cut -> pinged ~midday the day before, ~21h to act."""
+def _next_check(now, hours):
+    """Next scheduled pattern datetime strictly after `now`."""
+    hours = sorted(hours)
+    for h in hours:
+        cand = now.replace(hour=h, minute=0, second=0, microsecond=0)
+        if cand > now:
+            return cand
+    return (now + datetime.timedelta(days=1)).replace(hour=hours[0], minute=0, second=0, microsecond=0)
+
+
+def deadline_reminder(check_hours=(8, 12, 16, 20), buffer_h=4):
+    """Fire once per appointment at the LATEST pattern-hour that's still >= buffer_h
+    before the 24u cancel-deadline. So it lands as close to the deadline as possible
+    (salient, not days early) while always leaving a usable window. For early-morning
+    cuts the deadline is early, so it naturally lands the evening before."""
     state = load_state()
     appts = get_appts(state)
     warned = state.setdefault("deadline_warned", [])
@@ -485,17 +495,23 @@ def deadline_reminder():
     now = core.now_local().replace(tzinfo=None)
     changed = False
     for a in appts:
+        if a["appointment"] in warned:
+            continue
         appt = datetime.datetime.fromisoformat(f"{a['date']}T{a['time']}")
         deadline = appt - datetime.timedelta(hours=24)
-        deadline_h = (deadline - now).total_seconds() / 3600
-        if 2 < deadline_h <= 24 and a["appointment"] not in warned:
-            discord_post(
-                f":alarm_clock: **Laatste kans om te annuleren/verzetten.**\n"
-                f"Je knipbeurt is **{nl_date(a['date'])} om {a['time'][:5]}**. "
-                f"Tot **{nl_date(deadline.date())[:-5]} {deadline.strftime('%H:%M')}** "
-                f"(~{round(deadline_h)}u) kan ik 'm nog annuleren of verzetten — daarna alleen via Alan.")
-            warned.append(a["appointment"])
-            changed = True
+        if now >= deadline:
+            continue  # already locked
+        cutoff = deadline - datetime.timedelta(hours=buffer_h)
+        if _next_check(now, check_hours) <= cutoff:
+            continue  # a later pattern-hour is still in time -> wait for it
+        left = round((deadline - now).total_seconds() / 3600)
+        discord_post(
+            f":alarm_clock: **Laatste kans om te annuleren/verzetten.**\n"
+            f"Je knipbeurt is **{nl_date(a['date'])} om {a['time'][:5]}**. "
+            f"Tot **{nl_date(deadline.date())[:-5]} {deadline.strftime('%H:%M')}** "
+            f"(~{left}u) kan ik 'm nog annuleren of verzetten — daarna alleen via Alan.")
+        warned.append(a["appointment"])
+        changed = True
     if changed:
         save_state(state)
 
