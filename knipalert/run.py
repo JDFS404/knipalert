@@ -225,6 +225,7 @@ async def reminder_loop():
         if now.hour == MORNING_HOUR and morning_done != now.date():
             try:
                 await asyncio.to_thread(tasks.morning_reminder)
+                await asyncio.to_thread(tasks.deadline_reminder)
                 morning_done = now.date()
             except Exception:
                 traceback.print_exc()

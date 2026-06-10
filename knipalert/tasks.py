@@ -113,6 +113,13 @@ def window_days(target_iso, radius=5):
             if abs((datetime.date.fromisoformat(d) - t).days) <= radius]
 
 
+def hours_until(a):
+    """Hours from now (local) until appointment a."""
+    appt = datetime.datetime.fromisoformat(f"{a['date']}T{a['time']}")
+    now = core.now_local().replace(tzinfo=None)
+    return (appt - now).total_seconds() / 3600
+
+
 # --- bot --------------------------------------------------------------------
 def _handle(text, state, allow_llm=True):
     low = text.lower().strip()
@@ -193,6 +200,10 @@ def _handle(text, state, allow_llm=True):
         else:
             opts = " / ".join(f"`annuleer {x['date']}`" for x in up)
             discord_post(f"Je hebt meerdere afspraken — welke wil je annuleren? {opts}")
+            return
+        if hours_until(a) < 24:
+            discord_post(f":no_entry: **{nl_date(a['date'])} om {a['time'][:5]}** is binnen 24 uur — "
+                         "online annuleren kan dan niet meer. Bel of app Alan om af te zeggen.")
             return
         if not a.get("token"):
             discord_post(f":warning: Die afspraak (**{nl_date(a['date'])} om {a['time'][:5]}**) heb ik "
@@ -289,6 +300,10 @@ def _handle(text, state, allow_llm=True):
             discord_post("Ik heb geen (door mij geboekte) afspraak om te verzetten.")
             return
         old = up[0]
+        if hours_until(old) < 24:
+            discord_post(f":no_entry: Je afspraak (**{nl_date(old['date'])} om {old['time'][:5]}**) is "
+                         "binnen 24 uur — verzetten/annuleren kan dan niet meer via mij. Bel Alan.")
+            return
         ntime = parse_time(low)
         if not ntime:
             discord_post(f"Naar welke tijd wil je **{nl_date(old['date'])} om {old['time'][:5]}** "
@@ -454,6 +469,31 @@ def morning_reminder():
         for a in todays:
             discord_post(f":bell: **Vandaag om {a['time'][:5]} knippen bij Alan!** 💈 Tot zo. ✂️")
         state["reminded_date"] = tdy_iso
+        save_state(state)
+
+
+def deadline_reminder():
+    """Heads-up while you can still cancel: fires when an appointment is 24-48h out
+    (i.e. >24h before it locks). Once per appointment."""
+    state = load_state()
+    appts = get_appts(state)
+    warned = state.setdefault("deadline_warned", [])
+    ids = {a["appointment"] for a in appts}
+    warned[:] = [w for w in warned if w in ids]  # prune past ones
+    changed = False
+    for a in appts:
+        h = hours_until(a)
+        if 24 < h <= 48 and a["appointment"] not in warned:
+            appt = datetime.datetime.fromisoformat(f"{a['date']}T{a['time']}")
+            deadline = appt - datetime.timedelta(hours=24)
+            discord_post(
+                f":alarm_clock: **Laatste kans om te annuleren/verzetten.**\n"
+                f"Je knipbeurt is **{nl_date(a['date'])} om {a['time'][:5]}**. "
+                f"Tot **{nl_date(deadline.date())[:-5]} {deadline.strftime('%H:%M')}** "
+                f"(24u van tevoren) kan ik 'm nog annuleren of verzetten — daarna alleen via Alan.")
+            warned.append(a["appointment"])
+            changed = True
+    if changed:
         save_state(state)
 
 
