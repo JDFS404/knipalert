@@ -4,7 +4,7 @@
       "command": "uvx",
       "args": ["--python", "3.13", "ha-mcp@latest"],
       "env": {
-        "HOMEASSISTANT_URL": "${HOMEASSISTANT_URL}",
+        "HOMEASSISTANT_URL": "https://hisgenpad.molamola.dev",
         "HOMEASSISTANT_TOKEN": "${HOMEASSISTANT_TOKEN}"
       }
     }
