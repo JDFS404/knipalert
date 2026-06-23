@@ -107,6 +107,23 @@ async def _sc_help(interaction):
     await _run_text(interaction, "help")
 
 
+@tree.command(name="aankopen", description="Je recente Albert Heijn-aankopen")
+@discord.app_commands.describe(aantal="Aantal bonnen (standaard 8, max 20)")
+async def _sc_aankopen(interaction, aantal: int = 8):
+    await _run_text(interaction, f"aankopen {aantal}")
+
+
+@tree.command(name="punten", description="Je AH bonuskaart-spaarpunten")
+async def _sc_punten(interaction):
+    await _run_text(interaction, "ah punten")
+
+
+@tree.command(name="uitgaven", description="Uitgavenanalyse Albert Heijn")
+@discord.app_commands.describe(weken="Aantal weken terugkijken (standaard 4)")
+async def _sc_uitgaven(interaction, weken: int = 4):
+    await _run_text(interaction, f"ah uitgaven {weken} weken")
+
+
 @client.event
 async def on_ready():
     print(f"Knip Alert gateway connected as {client.user} "

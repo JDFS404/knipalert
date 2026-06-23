@@ -38,7 +38,11 @@ HELP = (
     "• `hou <datum> in de gaten` — wachtlijst: ik ping zodra er op die dag een plek vrijkomt.\n"
     "• `status` — je geplande afspraken · `annuleer` — afspraak annuleren.\n"
     "• `historie` — je laatste knipbeurten + gemiddelde cadans.\n"
-    "• `help` — dit overzicht."
+    "• `help` — dit overzicht.\n"
+    "\n:shopping_cart: **Albert Heijn** (vereist AH_USERNAME/PASSWORD/CLIENT_SECRET in .env)\n"
+    "• `aankopen` / `boodschappen` — je laatste AH-bonnen.\n"
+    "• `punten` / `bonus` — je bonuskaart-spaarpunten.\n"
+    "• `ah uitgaven` / `ah uitgaven 8 weken` — uitgavenanalyse."
 )
 
 
@@ -362,6 +366,20 @@ def _handle(text, state, allow_llm=True):
         discord_post(msg + (" Je andere afspraken blijven staan." if ok else ""))
         return
 
+    # Albert Heijn commando's
+    if any(k in low for k in ("ah ", "boodschappen", "aankopen", "bonuskaart",
+                              "ah punten", "ah uitgaven", "supermarkt")):
+        _handle_ah(low, state)
+        return
+
+    if low in ("punten", "bonus", "bonuspunten"):
+        _ah_punten(state)
+        return
+
+    if low in ("ah",):
+        _ah_aankopen(state)
+        return
+
     # rule parser stumped -> optional Claude Haiku fallback (only if a key is set)
     if allow_llm:
         canon = llm_command(text)
@@ -553,3 +571,105 @@ def reminder_run():
         f"{_line_for(sat, sat_slots)} _(middag)_\n"
         f"{_line_for(sun, sun_slots)}\n"
         "Boeken? Stuur bv. `boek vrijdag 18:30`, `boek zaterdag 14:00` of `boek zondag 13:00`.")
+
+
+# --- Albert Heijn ------------------------------------------------------------
+
+def _ah_not_configured():
+    discord_post(
+        ":warning: **AH-integratie niet ingesteld.**\n"
+        "Voeg toe aan `.env`:\n"
+        "```\n"
+        "AH_USERNAME=jouw@email.nl\n"
+        "AH_PASSWORD=jouwwachtwoord\n"
+        "AH_CLIENT_SECRET=<zie .env.example>\n"
+        "```"
+    )
+
+
+def _ah_aankopen(state, limit=8):
+    from . import ah as ah_mod
+    if not ah_mod.enabled():
+        _ah_not_configured()
+        return
+    try:
+        token = ah_mod.get_token(state)
+        save_state(state)
+        receipts = ah_mod.get_receipts(token, limit=limit)
+        if not receipts:
+            discord_post(":shopping_cart: Geen recente AH-aankopen gevonden.")
+            return
+        lines = []
+        for r in receipts:
+            dt = r.get("transactionMoment", "")[:10]
+            amount = r.get("totalAmount", {}).get("amount", 0)
+            city = r.get("storeAddress", {}).get("city", "")
+            lines.append(f"• {dt}: **€{amount:.2f}**" + (f" — {city}" if city else ""))
+        discord_post(":shopping_cart: **Je laatste AH-aankopen:**\n" + "\n".join(lines))
+    except ValueError as e:
+        discord_post(f":warning: {e}")
+    except Exception as e:
+        discord_post(f":x: AH-aankopen ophalen lukte niet: {e}")
+
+
+def _ah_punten(state):
+    from . import ah as ah_mod
+    if not ah_mod.enabled():
+        _ah_not_configured()
+        return
+    try:
+        token = ah_mod.get_token(state)
+        save_state(state)
+        profile = ah_mod.get_profile(token)
+        bonus = profile.get("bonus", {})
+        points = bonus.get("currentPoints", bonus.get("points", "?"))
+        first = profile.get("firstName", profile.get("name", {}).get("firstName", ""))
+        discord_post(
+            f":credit_card: **AH Bonuskaart{' — ' + first if first else ''}**\n"
+            f"Spaarpunten: **{points}**"
+        )
+    except ValueError as e:
+        discord_post(f":warning: {e}")
+    except Exception as e:
+        discord_post(f":x: Bonuspunten ophalen lukte niet: {e}")
+
+
+def _ah_uitgaven(state, weken=4):
+    from . import ah as ah_mod
+    if not ah_mod.enabled():
+        _ah_not_configured()
+        return
+    try:
+        token = ah_mod.get_token(state)
+        save_state(state)
+        receipts = ah_mod.get_receipts(token, limit=52)
+        since = (datetime.date.today() - datetime.timedelta(weeks=weken)).isoformat()
+        recent = [r for r in receipts if r.get("transactionMoment", "")[:10] >= since]
+        if not recent:
+            discord_post(f":bar_chart: Geen AH-aankopen gevonden in de afgelopen {weken} weken.")
+            return
+        total = sum(r.get("totalAmount", {}).get("amount", 0) for r in recent)
+        per_week = total / weken
+        discord_post(
+            f":bar_chart: **AH-uitgaven — afgelopen {weken} weken**\n"
+            f"Boodschappentrips: **{len(recent)}**\n"
+            f"Totaal: **€{total:.2f}**\n"
+            f"Gemiddeld/week: **€{per_week:.2f}**"
+        )
+    except ValueError as e:
+        discord_post(f":warning: {e}")
+    except Exception as e:
+        discord_post(f":x: Uitgaven ophalen lukte niet: {e}")
+
+
+def _handle_ah(low, state):
+    if "punten" in low or "bonus" in low:
+        _ah_punten(state)
+    elif "uitgaven" in low or "budget" in low:
+        m = re.search(r"\b(\d+)\s*wek", low)
+        weken = int(m.group(1)) if m else 4
+        _ah_uitgaven(state, weken=weken)
+    else:
+        m = re.search(r"\b(\d+)\b", low)
+        limit = int(m.group(1)) if m and int(m.group(1)) <= 20 else 8
+        _ah_aankopen(state, limit=limit)
