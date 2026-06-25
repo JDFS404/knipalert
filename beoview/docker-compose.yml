@@ -1,0 +1,7 @@
+services:
+  beoview:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8080}:8080"
+    env_file: .env

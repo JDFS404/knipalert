@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <title>Voordeur</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #0f172a;
+      color: #f1f5f9;
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 1.5rem;
+      padding: 2rem;
+      user-select: none;
+    }
+
+    h1 { font-size: 1.1rem; font-weight: 500; opacity: .45; letter-spacing: .06em; text-transform: uppercase; }
+
+    /* bell animation */
+    #bell {
+      font-size: 4rem;
+      display: none;
+      animation: ring .5s ease 3;
+    }
+    @keyframes ring {
+      0%,100% { transform: rotate(0); }
+      20%      { transform: rotate(-18deg); }
+      60%      { transform: rotate(18deg); }
+    }
+
+    /* open button */
+    #open-btn {
+      background: #16a34a;
+      border: none;
+      color: #fff;
+      font-size: 1.6rem;
+      font-weight: 600;
+      padding: 1.4rem 4rem;
+      border-radius: 1.2rem;
+      cursor: pointer;
+      box-shadow: 0 0 32px #16a34a55;
+      transition: transform .12s, box-shadow .12s, background .15s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #open-btn:active  { transform: scale(.96); box-shadow: 0 0 12px #16a34a33; }
+    #open-btn:disabled{ opacity: .4; cursor: not-allowed; transform: none; }
+
+    /* status line */
+    #status { font-size: .95rem; min-height: 1.4em; transition: color .2s; }
+    .ok  { color: #4ade80; }
+    .err { color: #f87171; }
+
+    /* history */
+    #history { width: 100%; max-width: 380px; margin-top: .5rem; }
+    #history h2 { font-size: .8rem; opacity: .35; text-transform: uppercase; letter-spacing: .06em; margin-bottom: .5rem; }
+    #hist-list { list-style: none; }
+    #hist-list li {
+      padding: .35rem 0;
+      border-bottom: 1px solid #1e293b;
+      font-size: .88rem;
+      opacity: .7;
+    }
+    #hist-list li.new { color: #fbbf24; opacity: 1; }
+  </style>
+</head>
+<body>
+  <h1>Voordeur</h1>
+  <div id="bell">🔔</div>
+  <button id="open-btn" onclick="openDoor()">Deur open</button>
+  <div id="status"></div>
+
+  <div id="history">
+    <h2>Belletjes</h2>
+    <ul id="hist-list"></ul>
+  </div>
+
+  <script>
+    const btn    = document.getElementById('open-btn');
+    const status = document.getElementById('status');
+    const bell   = document.getElementById('bell');
+    const hist   = document.getElementById('hist-list');
+
+    async function openDoor() {
+      btn.disabled = true;
+      setStatus('Opening…', '');
+      try {
+        const r = await fetch('/open', { method: 'POST' });
+        const j = await r.json().catch(() => ({}));
+        if (r.ok) {
+          setStatus('✓ Deur open!', 'ok');
+        } else {
+          setStatus('✗ ' + (j.error || 'Mislukt (' + r.status + ')'), 'err');
+        }
+      } catch {
+        setStatus('✗ Geen verbinding', 'err');
+      }
+      setTimeout(() => { btn.disabled = false; setStatus('', ''); }, 3000);
+    }
+
+    function setStatus(msg, cls) {
+      status.textContent = msg;
+      status.className   = cls;
+    }
+
+    function showRing(ts) {
+      // bell animation
+      bell.style.display = 'block';
+      bell.style.animation = 'none';
+      void bell.offsetWidth; // reflow
+      bell.style.animation = '';
+      setTimeout(() => { bell.style.display = 'none'; }, 2000);
+
+      // history entry
+      const li = document.createElement('li');
+      li.className = 'new';
+      li.textContent = '🔔  ' + ts;
+      hist.prepend(li);
+      setTimeout(() => li.classList.remove('new'), 4000);
+    }
+
+    // load history on page load
+    fetch('/history')
+      .then(r => r.json())
+      .then(items => items.forEach(ts => {
+        const li = document.createElement('li');
+        li.textContent = ts;
+        hist.appendChild(li);
+      }))
+      .catch(() => {});
+
+    // live ring notifications via WebSocket
+    function connect() {
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+      const ws = new WebSocket(`${proto}://${location.host}/ws`);
+      ws.onmessage = e => showRing(e.data);
+      ws.onclose   = () => setTimeout(connect, 2000); // auto-reconnect
+    }
+    connect();
+  </script>
+</body>
+</html>
