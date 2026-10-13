@@ -293,27 +293,51 @@ def _handle(text, state, allow_llm=True):
             discord_post("Je wachtlijst is leeg. Stuur bv. `hou 14 juni in de gaten`.")
         return
 
-    # "verzet [datum] <tijd>" — reschedule the soonest cancellable appointment
-    if "verzet" in low or "verplaats" in low:
+    # "verzet [datum] <tijd>" — reschedule the soonest cancellable appointment.
+    # A bare "verzet" (or "verzet zondag") stores a pending reschedule, so the follow-up
+    # ("zondag 12:00" / "12:00") finishes it instead of booking a second appointment.
+    pend = state.get("pending_verzet")
+    if pend and datetime.datetime.now().timestamp() - pend["ts"] > 1800:
+        state.pop("pending_verzet", None)
+        pend = None
+    follow_up = bool(pend) and not any(w in low for w in (
+        "annuleer", "boek", "status", "help", "wachtlijst", "hou ", "wanneer", "vrij")) \
+        and bool(parse_date(low) or parse_time(low))
+    if "verzet" in low or "verplaats" in low or follow_up:
         up = [a for a in upcoming(get_appts(state), today().isoformat()) if a.get("token")]
         if not up:
+            state.pop("pending_verzet", None)
+            save_state(state)
             discord_post("Ik heb geen (door mij geboekte) afspraak om te verzetten.")
             return
         old = up[0]
         if hours_until(old) < 24:
+            state.pop("pending_verzet", None)
+            save_state(state)
             discord_post(f":no_entry: Je afspraak (**{nl_date(old['date'])} om {old['time'][:5]}**) is "
                          "binnen 24 uur — verzetten/annuleren kan dan niet meer via mij. Bel Alan.")
             return
         ntime = parse_time(low)
+        ndate = parse_date(low) or (pend or {}).get("date")
         if not ntime:
-            discord_post(f"Naar welke tijd wil je **{nl_date(old['date'])} om {old['time'][:5]}** "
-                         f"verzetten? Bv. `verzet zaterdag 14:00`.")
+            state["pending_verzet"] = {"date": ndate, "ts": datetime.datetime.now().timestamp()}
+            save_state(state)
+            if ndate:
+                discord_post(f"Hoe laat op **{nl_date(ndate)}** wil je **{nl_date(old['date'])} om "
+                             f"{old['time'][:5]}** verzetten? Bv. `12:00`.")
+            else:
+                discord_post(f"Naar welke dag en tijd wil je **{nl_date(old['date'])} om "
+                             f"{old['time'][:5]}** verzetten? Bv. `zaterdag 14:00`.")
             return
-        ndate = parse_date(low) or old["date"]
+        ndate = ndate or old["date"]
+        state.pop("pending_verzet", None)
         ok, msg = book_slot(state, ndate, ntime, force=True)
         if ok:
             cancel_appt(state, old)
             msg += f" Verzet vanaf je oude afspraak ({nl_date(old['date'])} om {old['time'][:5]}), die is geannuleerd."
+        else:  # slot not free: keep the reschedule open so the next reply can pick another time
+            state["pending_verzet"] = {"date": ndate, "ts": datetime.datetime.now().timestamp()}
+            save_state(state)
         discord_post(msg)
         return
 
