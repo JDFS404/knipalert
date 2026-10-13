@@ -46,7 +46,7 @@ jobs:
         run: |
           IMG=$(echo "${{ steps.meta.outputs.tags }}" | head -n1)
           docker run --rm -e DISCORD_BOT_TOKEN=dummy -e DISCORD_CHANNEL_ID=1 "$IMG" \
-            python -c "import knipalert.run, googleapiclient.discovery, google.oauth2.service_account, discord; print('smoke ok')"
+            python -c "import knipalert.run, caldav, discord; print('smoke ok')"
 
       # 3) Only now publish (smoke test passed -> a broken commit never becomes :latest).
       - name: Push
