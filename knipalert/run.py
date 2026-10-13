@@ -5,7 +5,7 @@ Knip Alert runner — Discord Gateway (websocket) for near-instant responses.
   • earlier-watcher : every 15 min (background task)
   • biweekly nudge  : Wed + Fri at REMINDER_HOUR (background task)
 
-Blocking work (SalonHub / Google / REST posts) runs in a thread so it never
+Blocking work (SalonHub / iCloud / REST posts) runs in a thread so it never
 stalls the websocket heartbeat. Keep alive with `restart: unless-stopped`.
 """
 import os

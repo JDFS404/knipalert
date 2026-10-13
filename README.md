@@ -19,24 +19,17 @@ your Proxmox/Docker host.
 Reuse your existing **SnipAlert** bot token + channel ID (Message Content Intent ON).
 Put them in `.env`.
 
-### 2. Google Calendar (service account — headless, no login on the server)
-1. Google Cloud Console → create a project → **Enable the Google Calendar API**.
-2. **APIs & Services → Credentials → Create credentials → Service account.**
-3. On the service account → **Keys → Add key → JSON** → download it.
-4. Save that file as **`secrets/gcal-sa.json`** in this folder.
-5. Copy the service account's email (looks like `name@project.iam.gserviceaccount.com`).
-6. In **Google Calendar** (web) → your calendar → **Settings → Share with specific
-   people → Add** the service-account email → permission **"Make changes to events."**
-7. Set `GCAL_CALENDAR_ID` in `.env` to your calendar's ID (your Gmail address for
-   your primary calendar).
-
-> Events land on your Google Calendar — and show up in Apple Calendar too if your
-> Google account is added there.
+### 2. iCloud Calendar (CalDAV — headless)
+1. Create an **app-specific password** at account.apple.com → Sign-In and Security.
+2. Set `ICLOUD_USER` (Apple ID), `ICLOUD_APP_PASSWORD` and `ICLOUD_CALENDAR` in `.env`.
+   `ICLOUD_CALENDAR` is a comma-separated list of calendar names: the first receives
+   new events, all are checked for clashes. Share that calendar with the other person
+   in Apple Calendar so it shows up for them too.
 
 ### 3. Configure
 ```bash
 cp .env.example .env
-# edit .env: Discord token/channel, customer details, GCAL_CALENDAR_ID
+# edit .env: Discord token/channel, customer details, ICLOUD_CALENDAR
 ```
 
 ### 4. Seed state (continuity with the Mac version)

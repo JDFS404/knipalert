@@ -1,6 +1,6 @@
 """
 SnipAlert core — config, SalonHub + Discord HTTP, state, NL date/time parsing,
-and Google Calendar helpers. Shared by the bot / watcher / reminder tasks.
+and iCloud Calendar (CalDAV) helpers. Shared by the bot / watcher / reminder tasks.
 
 All configuration comes from environment variables (see .env.example).
 """
@@ -49,11 +49,11 @@ DURATION_MIN = int(env("DURATION_MIN", "30"))
 STATE_PATH = env("STATE_PATH", "/data/state.json")
 
 GCAL_ENABLED = env("GCAL_ENABLED", "true").lower() == "true"
-GCAL_CALENDAR_ID = env("GCAL_CALENDAR_ID", "primary")
-GOOGLE_CREDENTIALS = env("GOOGLE_APPLICATION_CREDENTIALS", "/secrets/gcal-sa.json")
-# Service-account key as base64 of the JSON (preferred for Komodo/env-only deploys).
-# Falls back to the file at GOOGLE_APPLICATION_CREDENTIALS if unset.
-GOOGLE_CREDENTIALS_B64 = env("GOOGLE_CREDENTIALS_B64", "")
+ICLOUD_CALDAV_URL = env("ICLOUD_CALDAV_URL", "https://caldav.icloud.com")
+ICLOUD_USER = env("ICLOUD_USER", "")
+ICLOUD_APP_PASSWORD = env("ICLOUD_APP_PASSWORD", "")
+# Comma-separated calendar names; the first one receives events, all are checked for clashes.
+ICLOUD_CALENDAR = env("ICLOUD_CALENDAR", "")
 
 LOCATION = env("BARBER_LOCATION", "Bilderdijkstraat 92H, 1053KX Amsterdam")
 BOOK_URL = "https://widget.salonhub.nl/a/barbershopalan/amsterdam/link.html"
@@ -387,47 +387,55 @@ def llm_command(text):
     return None
 
 
-# --- Google Calendar (service account) --------------------------------------
-def _gcal_service():
-    from googleapiclient.discovery import build
-    from google.oauth2 import service_account
-    scopes = ["https://www.googleapis.com/auth/calendar"]
-    if GOOGLE_CREDENTIALS_B64:
-        info = json.loads(base64.b64decode(GOOGLE_CREDENTIALS_B64))
-        creds = service_account.Credentials.from_service_account_info(info, scopes=scopes)
-    else:
-        creds = service_account.Credentials.from_service_account_file(GOOGLE_CREDENTIALS, scopes=scopes)
-    return build("calendar", "v3", credentials=creds, cache_discovery=False)
+# --- iCloud Calendar (CalDAV) -----------------------------------------------
+# Kept the gcal_* names so tasks.py is untouched; the "event id" is the iCal UID.
+def _ical_calendars():
+    import caldav
+    client = caldav.DAVClient(url=ICLOUD_CALDAV_URL, username=ICLOUD_USER, password=ICLOUD_APP_PASSWORD)
+    cals = client.principal().calendars()
+    names = [n.strip().lower() for n in ICLOUD_CALENDAR.split(",") if n.strip()]
+    found = {c.name.lower(): c for c in cals if c.name}
+    missing = [n for n in names if n not in found]
+    if missing:
+        raise RuntimeError(f"iCloud calendar not found: {missing} (have: {sorted(found)})")
+    return [found[n] for n in names]
 
 
 def gcal_add(date, hhmm):
-    """Create a 30-min event; returns the event id (or None if calendar disabled)."""
+    """Create a 30-min event in the first configured calendar; returns its UID (None if disabled)."""
     if not GCAL_ENABLED:
         return None
+    import uuid
     hh, mm = (int(x) for x in hhmm.split(":"))
     start = datetime.datetime.fromisoformat(date).replace(hour=hh, minute=mm)
     end = start + datetime.timedelta(minutes=DURATION_MIN)
-    event = {
-        "summary": "Knippen bij Barbershop Alan",
-        "location": LOCATION,
-        "start": {"dateTime": start.isoformat(), "timeZone": TIMEZONE},
-        "end": {"dateTime": end.isoformat(), "timeZone": TIMEZONE},
-    }
-    ev = _gcal_service().events().insert(calendarId=GCAL_CALENDAR_ID, body=event).execute()
-    return ev.get("id")
+    uid = f"knipalert-{uuid.uuid4()}"
+    fmt = lambda d: d.strftime("%Y%m%dT%H%M%S")
+    ics = "\r\n".join([
+        "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//knipalert//NL", "BEGIN:VEVENT",
+        f"UID:{uid}", f"DTSTAMP:{datetime.datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}",
+        f"DTSTART;TZID={TIMEZONE}:{fmt(start)}", f"DTEND;TZID={TIMEZONE}:{fmt(end)}",
+        "SUMMARY:Knippen bij Barbershop Alan", f"LOCATION:{LOCATION}",
+        "BEGIN:VALARM", "ACTION:DISPLAY", "DESCRIPTION:Knippen", "TRIGGER:-PT1H", "END:VALARM",
+        "END:VEVENT", "END:VCALENDAR", ""])
+    _ical_calendars()[0].save_event(ics)
+    return uid
 
 
 def gcal_delete(event_id):
     if not (GCAL_ENABLED and event_id):
         return
     try:
-        _gcal_service().events().delete(calendarId=GCAL_CALENDAR_ID, eventId=event_id).execute()
+        import caldav
+        cal = _ical_calendars()[0]
+        # iCloud rejects UID-search (412); events are stored as <uid>.ics, so delete by URL.
+        caldav.Event(client=cal.client, url=cal.url.join(f"{event_id}.ics")).delete()
     except Exception:
         pass
 
 
 def gcal_busy(date, hhmm):
-    """Return a busy event's summary if the slot clashes with your calendar, else None."""
+    """Return a busy event's summary if the slot clashes with any configured calendar, else None."""
     if not (GCAL_ENABLED and ZoneInfo):
         return None
     try:
@@ -435,12 +443,11 @@ def gcal_busy(date, hhmm):
         tz = ZoneInfo(TIMEZONE)
         start = datetime.datetime.fromisoformat(date).replace(hour=hh, minute=mm, tzinfo=tz)
         end = start + datetime.timedelta(minutes=DURATION_MIN)
-        svc = _gcal_service()
-        fb = svc.freebusy().query(body={
-            "timeMin": start.isoformat(), "timeMax": end.isoformat(),
-            "timeZone": TIMEZONE, "items": [{"id": GCAL_CALENDAR_ID}],
-        }).execute()
-        busy = fb.get("calendars", {}).get(GCAL_CALENDAR_ID, {}).get("busy", [])
-        return "een bestaande afspraak" if busy else None
+        for cal in _ical_calendars():
+            for ev in cal.search(start=start, end=end, event=True, expand=True):
+                # All-day entries (birthdays, "dinner with X" markers) don't block a haircut.
+                if "DTSTART;VALUE=DATE:" not in ev.data:
+                    return "een bestaande afspraak"
+        return None
     except Exception:
         return None
