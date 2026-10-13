@@ -430,8 +430,8 @@ def gcal_delete(event_id):
         cal = _ical_calendars()[0]
         # iCloud rejects UID-search (412); events are stored as <uid>.ics, so delete by URL.
         caldav.Event(client=cal.client, url=cal.url.join(f"{event_id}.ics")).delete()
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"gcal_delete {event_id} failed: {type(e).__name__}: {e}", flush=True)
 
 
 def gcal_busy(date, hhmm):
@@ -449,5 +449,6 @@ def gcal_busy(date, hhmm):
                 if "DTSTART;VALUE=DATE:" not in ev.data:
                     return "een bestaande afspraak"
         return None
-    except Exception:
+    except Exception as e:
+        print(f"gcal_busy check failed: {type(e).__name__}: {e}", flush=True)
         return None
