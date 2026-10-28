@@ -25,6 +25,8 @@ Put them in `.env`.
    `ICLOUD_CALENDAR` is a comma-separated list of calendar names: the first receives
    new events, all are checked for clashes. Share that calendar with the other person
    in Apple Calendar so it shows up for them too.
+   Optional `ICLOUD_INVITE` (comma-separated e-mail addresses) invites them to every
+   booking; iCloud mails the invitation and the cancellation, so it lands in e.g. a work calendar.
 
 ### 3. Configure
 ```bash

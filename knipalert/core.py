@@ -54,6 +54,8 @@ ICLOUD_USER = env("ICLOUD_USER", "")
 ICLOUD_APP_PASSWORD = env("ICLOUD_APP_PASSWORD", "")
 # Comma-separated calendar names; the first one receives events, all are checked for clashes.
 ICLOUD_CALENDAR = env("ICLOUD_CALENDAR", "")
+# Comma-separated addresses invited to every booking (iCloud mails them; e.g. a work calendar).
+ICLOUD_INVITE = [m.strip() for m in env("ICLOUD_INVITE", "").split(",") if m.strip()]
 
 LOCATION = env("BARBER_LOCATION", "Bilderdijkstraat 92H, 1053KX Amsterdam")
 BOOK_URL = "https://widget.salonhub.nl/a/barbershopalan/amsterdam/link.html"
@@ -418,7 +420,15 @@ def gcal_add(date, hhmm):
         "SUMMARY:Knippen bij Barbershop Alan", f"LOCATION:{LOCATION}",
         "BEGIN:VALARM", "ACTION:DISPLAY", "DESCRIPTION:Knippen", "TRIGGER:-PT1H", "END:VALARM",
         "END:VEVENT", "END:VCALENDAR", ""])
-    _ical_calendars()[0].save_event(ics)
+    cal = _ical_calendars()[0]
+    if ICLOUD_INVITE:
+        # iCloud only sends invitations (and cancellations on delete) when the event has an ORGANIZER.
+        organizer = next(str(a) for a in cal.client.principal().calendar_user_address_set()
+                         if str(a).lower().startswith("mailto:"))
+        lines = [f"ORGANIZER:{organizer}"] + [
+            f"ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:{m}" for m in ICLOUD_INVITE]
+        ics = ics.replace("BEGIN:VALARM", "\r\n".join(lines) + "\r\nBEGIN:VALARM", 1)
+    cal.save_event(ics)
     return uid
 
 
