@@ -425,13 +425,20 @@ def gcal_add(date, hhmm):
 def gcal_delete(event_id):
     if not (GCAL_ENABLED and event_id):
         return
+    import caldav
+    errors = []
     try:
-        import caldav
-        cal = _ical_calendars()[0]
-        # iCloud rejects UID-search (412); events are stored as <uid>.ics, so delete by URL.
-        caldav.Event(client=cal.client, url=cal.url.join(f"{event_id}.ics")).delete()
+        # Try every configured calendar: events booked before the first one changed live elsewhere.
+        for cal in _ical_calendars():
+            try:
+                # iCloud rejects UID-search (412); events are stored as <uid>.ics, so delete by URL.
+                caldav.Event(client=cal.client, url=cal.url.join(f"{event_id}.ics")).delete()
+                return
+            except Exception as e:
+                errors.append(f"{cal.name}: {type(e).__name__}: {e}")
     except Exception as e:
-        print(f"gcal_delete {event_id} failed: {type(e).__name__}: {e}", flush=True)
+        errors.append(f"{type(e).__name__}: {e}")
+    print(f"gcal_delete {event_id} failed: {'; '.join(errors)}", flush=True)
 
 
 def gcal_busy(date, hhmm):
